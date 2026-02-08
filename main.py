@@ -10,11 +10,12 @@ class EstadisticaLogic:
     DISTRIBUCIONES = {
         "normal": {"nombre": "Normal (Gaussiana)", "params": [("Media (μ)", "0"), ("Desviación (σ)", "1")]},
         "uniforme": {"nombre": "Uniforme Continua", "params": [("a (mínimo)", "0"), ("b (máximo)", "1")]},
-        "exponencial": {"nombre": "Exponencial", "params": [("Lambda (λ)", "1")]}, # Chart generic or specific? Logic has it.
+        "exponencial": {"nombre": "Exponencial", "params": [("Lambda (λ)", "1")]},
         "poisson": {"nombre": "Poisson", "params": [("Lambda (λ)", "3")]},
         "binomial": {"nombre": "Binomial", "params": [("n (ensayos)", "10"), ("p (probabilidad)", "0.5")]},
         "t_student": {"nombre": "t-Student", "params": [("Grados de libertad (ν)", "10")]},
         "chi_cuadrado": {"nombre": "Chi-Cuadrado (χ²)", "params": [("Grados de libertad (k)", "5")]},
+        "fisher_f": {"nombre": "Fisher F", "params": [("gl numerador (d₁)", "5"), ("gl denominador (d₂)", "10")]},
     }
 
     @staticmethod
@@ -46,6 +47,17 @@ class EstadisticaLogic:
                 return sum(EstadisticaPura.binomial_pmf(i, n, p) for i in range(k + 1))
             elif dist_id == "t_student":
                 return EstadisticaPura.t_cdf(valor, params[0])
+            elif dist_id == "chi_cuadrado":
+                # Chi2 CDF via integration
+                prob = 0.0
+                dt = 0.1
+                t = 0.0
+                while t < valor:
+                    prob += EstadisticaPura.chi2_pdf(t, params[0]) * dt
+                    t += dt
+                return min(max(prob, 0), 1)
+            elif dist_id == "fisher_f":
+                return EstadisticaPura.f_cdf(valor, params[0], params[1])
             # Chi2 y uniforme no implementados en simple pure logic full cdf yet for "calcular_probabilidad" exactly as scipy
             # Implementing basics
             return 0.0
@@ -62,6 +74,8 @@ class EstadisticaLogic:
                 return EstadisticaPura.t_ppf(probabilidad, params[0])
             elif dist_id == "chi_cuadrado":
                 return EstadisticaPura.chi2_ppf(probabilidad, params[0])
+            elif dist_id == "fisher_f":
+                return EstadisticaPura.f_ppf(probabilidad, params[0], params[1])
             return 0.0
         except Exception as e:
             return f"Error: {e}"
@@ -230,6 +244,11 @@ def main(page: ft.Page):
             "nombre": "Chi-Cuadrado",
             "formula": "χ² = Σ((O - E)² / E)",
             "formula_fn": lambda x, k: f"χ² = {x:.4f}, k = {int(k)}"
+        },
+        "fisher_f": {
+            "nombre": "Fisher F",
+            "formula": "F = S₁²/S₂² = (Var₁/Var₂)",
+            "formula_fn": lambda f, d1, d2: f"F = {f:.4f}, gl = ({int(d1)}, {int(d2)})"
         }
     }
 
@@ -254,6 +273,8 @@ def main(page: ft.Page):
                         formula_con_valores.value = info["formula_fn"](valor, params[0])
                     elif dist_id == "chi_cuadrado":
                         formula_con_valores.value = info["formula_fn"](valor, params[0])
+                    elif dist_id == "fisher_f":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0], params[1])
                 except Exception as ex:
                     formula_con_valores.value = f"Error: {ex}"
             else:
@@ -326,6 +347,7 @@ def main(page: ft.Page):
             ft.Radio(value="binomial", label="Binomial"),
             ft.Radio(value="t_student", label="t-Student"),
             ft.Radio(value="chi_cuadrado", label="Chi-Cuadrado (χ²)"),
+            ft.Radio(value="fisher_f", label="Fisher F"),
         ], spacing=2)
     )
 
