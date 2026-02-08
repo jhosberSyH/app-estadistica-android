@@ -126,7 +126,6 @@ class EstadisticaPura:
         comb = EstadisticaPura.combinations(n, k)
         return comb * (p ** k) * ((1 - p) ** (n - k))
     
-    @staticmethod
     def poisson_pmf(k, lambd):
         if k < 0: return 0
         return (lambd ** k * math.exp(-lambd)) / EstadisticaPura.factorial(k)
@@ -141,7 +140,252 @@ class EstadisticaPura:
         if x < 0: return 0
         return 1 - math.exp(-lambd * x)
 
-    # Gráficos Flet
+    # ==========================================
+    # DISTRIBUCIÓN F (Fisher-Snedecor)
+    # ==========================================
+    @staticmethod
+    def f_pdf(x, df1, df2):
+        """PDF de la distribución F"""
+        if x <= 0: return 0
+        try:
+            from math import gamma
+            num = math.sqrt(((df1 * x) ** df1) * (df2 ** df2) / ((df1 * x + df2) ** (df1 + df2)))
+            den = x * (gamma(df1/2) * gamma(df2/2) / gamma((df1 + df2)/2))
+            return num / den
+        except:
+            return 0.0
+
+    @staticmethod
+    def f_cdf(x, df1, df2):
+        """CDF F (Aproximación por integración numérica)"""
+        if x <= 0: return 0
+        # Integración trapezoidal simple
+        dt = 0.01
+        area = 0.0
+        t = 0.001
+        while t < x:
+            area += EstadisticaPura.f_pdf(t, df1, df2) * dt
+            t += dt
+        return min(max(area, 0), 1)
+
+    @staticmethod
+    def f_ppf(p, df1, df2):
+        """F PPF (búsqueda binaria)"""
+        if p <= 0: return 0
+        if p >= 1: return float('inf')
+        low, high = 0.001, 100
+        for _ in range(100):
+            mid = (low + high) / 2
+            if EstadisticaPura.f_cdf(mid, df1, df2) < p:
+                low = mid
+            else:
+                high = mid
+        return mid
+
+    # ==========================================
+    # DISTRIBUCIONES MUESTRALES
+    # ==========================================
+    
+    @staticmethod
+    def media_muestral_sigma_conocida(x_bar, mu, sigma, n):
+        """
+        Media muestral cuando σ es conocida
+        Retorna: z, prob_menor, prob_mayor
+        """
+        sigma_x_bar = sigma / math.sqrt(n)
+        z = (x_bar - mu) / sigma_x_bar
+        prob_menor = EstadisticaPura.normal_cdf(z, 0, 1)
+        prob_mayor = 1 - prob_menor
+        return {
+            "z": z,
+            "sigma_x_bar": sigma_x_bar,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"Z = (X̄ - μ) / (σ/√n) = ({x_bar} - {mu}) / ({sigma}/√{n}) = {z:.4f}"
+        }
+    
+    @staticmethod
+    def media_muestral_sigma_desconocida(x_bar, mu, s, n):
+        """
+        Media muestral cuando σ es desconocida (usa t-Student)
+        Retorna: t, prob_menor, prob_mayor
+        """
+        s_x_bar = s / math.sqrt(n)
+        t = (x_bar - mu) / s_x_bar
+        df = n - 1
+        prob_menor = EstadisticaPura.t_cdf(t, df)
+        prob_mayor = 1 - prob_menor
+        return {
+            "t": t,
+            "df": df,
+            "s_x_bar": s_x_bar,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"t = (X̄ - μ) / (s/√n) = ({x_bar} - {mu}) / ({s}/√{n}) = {t:.4f}, gl = {df}"
+        }
+    
+    @staticmethod
+    def varianza_muestral(s2, sigma2, n):
+        """
+        Varianza muestral usando Chi-cuadrado
+        """
+        df = n - 1
+        chi2 = (df * s2) / sigma2
+        # Buscar probabilidades
+        prob_menor = 0.0
+        dt = 0.1
+        t = 0.0
+        while t < chi2:
+            prob_menor += EstadisticaPura.chi2_pdf(t, df) * dt
+            t += dt
+        prob_menor = min(max(prob_menor, 0), 1)
+        prob_mayor = 1 - prob_menor
+        return {
+            "chi2": chi2,
+            "df": df,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"χ² = (n-1)S²/σ² = ({n}-1)×{s2}/{sigma2} = {chi2:.4f}, gl = {df}"
+        }
+    
+    @staticmethod
+    def proporcion_muestral(p_hat, p, n):
+        """
+        Proporción muestral (aproximación normal)
+        Condición: np >= 5 y n(1-p) >= 5
+        """
+        se = math.sqrt(p * (1 - p) / n)
+        z = (p_hat - p) / se
+        prob_menor = EstadisticaPura.normal_cdf(z, 0, 1)
+        prob_mayor = 1 - prob_menor
+        condicion_ok = n * p >= 5 and n * (1 - p) >= 5
+        return {
+            "z": z,
+            "se": se,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "condicion_ok": condicion_ok,
+            "formula": f"Z = (p̂ - p) / √(p(1-p)/n) = ({p_hat} - {p}) / {se:.4f} = {z:.4f}"
+        }
+    
+    @staticmethod
+    def diferencia_medias_sigma_conocida(x1_bar, x2_bar, mu1, mu2, sigma1, sigma2, n1, n2):
+        """
+        Diferencia de medias con σ conocidas
+        """
+        se = math.sqrt((sigma1**2 / n1) + (sigma2**2 / n2))
+        z = ((x1_bar - x2_bar) - (mu1 - mu2)) / se
+        prob_menor = EstadisticaPura.normal_cdf(z, 0, 1)
+        prob_mayor = 1 - prob_menor
+        return {
+            "z": z,
+            "se": se,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"Z = ((X̄₁-X̄₂) - (μ₁-μ₂)) / SE = {z:.4f}"
+        }
+    
+    @staticmethod
+    def diferencia_medias_pooled(x1_bar, x2_bar, s1, s2, n1, n2):
+        """
+        Diferencia de medias con varianzas desconocidas pero iguales (pooled)
+        """
+        sp2 = ((n1 - 1) * s1**2 + (n2 - 1) * s2**2) / (n1 + n2 - 2)
+        sp = math.sqrt(sp2)
+        se = sp * math.sqrt(1/n1 + 1/n2)
+        t = (x1_bar - x2_bar) / se
+        df = n1 + n2 - 2
+        prob_menor = EstadisticaPura.t_cdf(t, df)
+        prob_mayor = 1 - prob_menor
+        return {
+            "t": t,
+            "df": df,
+            "sp": sp,
+            "se": se,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"t = (X̄₁-X̄₂) / (Sp√(1/n₁+1/n₂)) = {t:.4f}, Sp = {sp:.4f}, gl = {df}"
+        }
+    
+    @staticmethod
+    def diferencia_proporciones(p1_hat, p2_hat, n1, n2):
+        """
+        Diferencia de proporciones
+        """
+        p_combined = (p1_hat * n1 + p2_hat * n2) / (n1 + n2)
+        se = math.sqrt(p_combined * (1 - p_combined) * (1/n1 + 1/n2))
+        z = (p1_hat - p2_hat) / se if se > 0 else 0
+        prob_menor = EstadisticaPura.normal_cdf(z, 0, 1)
+        prob_mayor = 1 - prob_menor
+        return {
+            "z": z,
+            "se": se,
+            "p_combined": p_combined,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"Z = (p̂₁-p̂₂) / SE = ({p1_hat}-{p2_hat}) / {se:.4f} = {z:.4f}"
+        }
+    
+    @staticmethod
+    def razon_varianzas(s1_2, s2_2, n1, n2):
+        """
+        Razón de varianzas (distribución F)
+        """
+        f = s1_2 / s2_2 if s2_2 > 0 else 0
+        df1 = n1 - 1
+        df2 = n2 - 1
+        prob_menor = EstadisticaPura.f_cdf(f, df1, df2)
+        prob_mayor = 1 - prob_menor
+        return {
+            "f": f,
+            "df1": df1,
+            "df2": df2,
+            "prob_menor": prob_menor,
+            "prob_mayor": prob_mayor,
+            "formula": f"F = S₁²/S₂² = {s1_2}/{s2_2} = {f:.4f}, gl = ({df1}, {df2})"
+        }
+    
+    # ==========================================
+    # INTERVALOS DE CONFIANZA
+    # ==========================================
+    @staticmethod
+    def ic_media_sigma_conocida(x_bar, sigma, n, confianza=0.95):
+        """Intervalo de confianza para la media (σ conocida)"""
+        alpha = 1 - confianza
+        z = EstadisticaPura.normal_ppf(1 - alpha/2)
+        margin = z * sigma / math.sqrt(n)
+        return {"lower": x_bar - margin, "upper": x_bar + margin, "margin": margin, "z": z}
+    
+    @staticmethod
+    def ic_media_sigma_desconocida(x_bar, s, n, confianza=0.95):
+        """Intervalo de confianza para la media (σ desconocida)"""
+        alpha = 1 - confianza
+        df = n - 1
+        t = EstadisticaPura.t_ppf(1 - alpha/2, df)
+        margin = t * s / math.sqrt(n)
+        return {"lower": x_bar - margin, "upper": x_bar + margin, "margin": margin, "t": t, "df": df}
+    
+    @staticmethod
+    def ic_proporcion(p_hat, n, confianza=0.95):
+        """Intervalo de confianza para proporción"""
+        alpha = 1 - confianza
+        z = EstadisticaPura.normal_ppf(1 - alpha/2)
+        se = math.sqrt(p_hat * (1 - p_hat) / n)
+        margin = z * se
+        return {"lower": max(0, p_hat - margin), "upper": min(1, p_hat + margin), "margin": margin, "z": z}
+    
+    @staticmethod
+    def ic_varianza(s2, n, confianza=0.95):
+        """Intervalo de confianza para varianza"""
+        alpha = 1 - confianza
+        df = n - 1
+        chi2_lower = EstadisticaPura.chi2_ppf(1 - alpha/2, df)
+        chi2_upper = EstadisticaPura.chi2_ppf(alpha/2, df)
+        lower = df * s2 / chi2_lower
+        upper = df * s2 / chi2_upper
+        return {"lower": lower, "upper": upper, "df": df}
+
+    # Gráficos Flet (desactivados - no compatibles con esta versión)
     @staticmethod
     def generar_chart_normal(mu, sigma):
         data_points = []
@@ -278,9 +522,84 @@ class EstadisticaPura:
         )
 
     @staticmethod
+    def generar_chart_uniforme(a, b):
+        """Genera gráfico para distribución uniforme continua"""
+        if b <= a:
+            b = a + 1  # Evitar división por cero
+        height = 1 / (b - a)
+        
+        # Puntos para crear el rectángulo
+        margin = (b - a) * 0.2
+        data_points = [
+            ft.LineChartDataPoint(a - margin, 0),
+            ft.LineChartDataPoint(a, 0),
+            ft.LineChartDataPoint(a, height),
+            ft.LineChartDataPoint(b, height),
+            ft.LineChartDataPoint(b, 0),
+            ft.LineChartDataPoint(b + margin, 0),
+        ]
+        
+        return ft.LineChart(
+            data_series=[
+                ft.LineChartData(
+                    data_points=data_points,
+                    color=ft.colors.AMBER,
+                    stroke_width=3,
+                    curved=False,
+                    stroke_cap_round=True,
+                )
+            ],
+            border=ft.Border(
+                bottom=ft.BorderSide(2, ft.colors.with_opacity(0.5, ft.colors.ON_SURFACE))
+            ),
+            left_axis=ft.ChartAxis(labels_size=0),
+            bottom_axis=ft.ChartAxis(labels_interval=1),
+            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.blue_grey_900),
+            min_y=0,
+            expand=True
+        )
+
+    @staticmethod
+    def generar_chart_exponencial(lambd):
+        """Genera gráfico para distribución exponencial"""
+        data_points = []
+        end = 5 / lambd if lambd > 0 else 5
+        step = end / 50
+        
+        curr = 0
+        while curr <= end:
+            y = EstadisticaPura.exponential_pdf(curr, lambd)
+            data_points.append(ft.LineChartDataPoint(curr, y))
+            curr += step
+        
+        return ft.LineChart(
+            data_series=[
+                ft.LineChartData(
+                    data_points=data_points,
+                    color=ft.colors.PINK,
+                    stroke_width=3,
+                    curved=True,
+                    stroke_cap_round=True,
+                )
+            ],
+            border=ft.Border(
+                bottom=ft.BorderSide(2, ft.colors.with_opacity(0.5, ft.colors.ON_SURFACE))
+            ),
+            left_axis=ft.ChartAxis(labels_size=0),
+            bottom_axis=ft.ChartAxis(labels_interval=1),
+            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.blue_grey_900),
+            min_y=0,
+            expand=True
+        )
+
+    @staticmethod
     def generar_grafico_dispatch(dist_id, params):
         if dist_id == "normal":
              return EstadisticaPura.generar_chart_normal(params[0], params[1])
+        elif dist_id == "uniforme":
+             return EstadisticaPura.generar_chart_uniforme(params[0], params[1])
+        elif dist_id == "exponencial":
+             return EstadisticaPura.generar_chart_exponencial(params[0])
         elif dist_id == "binomial":
              return EstadisticaPura.generar_chart_binomial(params[0], params[1])
         elif dist_id == "poisson":
@@ -290,4 +609,5 @@ class EstadisticaPura:
         elif dist_id == "chi_cuadrado":
              return EstadisticaPura.generar_chart_chi2(params[0])
         else:
-             return ft.Text("Gráfico no disponible distribucion simple", color="red")
+             return ft.Text("Gráfico no disponible", color="red")
+

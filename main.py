@@ -9,7 +9,7 @@ class EstadisticaLogic:
     # Configuración de parámetros por distribución
     DISTRIBUCIONES = {
         "normal": {"nombre": "Normal (Gaussiana)", "params": [("Media (μ)", "0"), ("Desviación (σ)", "1")]},
-        "uniforme": {"nombre": "Uniforme (No implementado en gráfico)", "params": [("a (mínimo)", "0"), ("b (máximo)", "1")]}, # Uniforme chart removed for simplification
+        "uniforme": {"nombre": "Uniforme Continua", "params": [("a (mínimo)", "0"), ("b (máximo)", "1")]},
         "exponencial": {"nombre": "Exponencial", "params": [("Lambda (λ)", "1")]}, # Chart generic or specific? Logic has it.
         "poisson": {"nombre": "Poisson", "params": [("Lambda (λ)", "3")]},
         "binomial": {"nombre": "Binomial", "params": [("n (ensayos)", "10"), ("p (probabilidad)", "0.5")]},
@@ -69,6 +69,11 @@ class EstadisticaLogic:
     @staticmethod
     def simular(dist_id, params, n):
         """Genera n valores aleatorios"""
+        if n <= 0:
+            return ["Error: N debe ser mayor que 0"]
+        if n > 10000:
+            n = 10000  # Limitar para evitar problemas de rendimiento
+        
         results = []
         try:
             import random
@@ -91,8 +96,10 @@ class EstadisticaLogic:
                 else:
                     results.append(0.0)
             return results
+        except ValueError as e:
+            return [f"Error de valor: {e}"]
         except Exception as e:
-            return [0.0]
+            return [f"Error: {e}"]
 
 
 # ==========================================
@@ -167,39 +174,94 @@ def main(page: ft.Page):
             height=55
         )
 
-    # --- Sección Gráfico (dinámica) ---
-    grafico_titulo = ft.Text("DISTRIBUCIÓN NORMAL", size=12, weight=ft.FontWeight.W_500, color=TEXT_MUTED)
-    # Contenedor para el gráfico Flet
-    grafico_container = ft.Container(
-        height=300, 
-        border_radius=8,
-        padding=10
-    )
+    # --- Sección Fórmula (reemplaza gráfico) ---
+    formula_titulo = ft.Text("FÓRMULA", size=12, weight=ft.FontWeight.W_500, color=TEXT_MUTED)
+    formula_texto = ft.Text("", size=14, color="#ffffff", selectable=True)
+    formula_con_valores = ft.Text("", size=14, color=ACCENT_GREEN, weight=ft.FontWeight.BOLD, selectable=True)
     
-    seccion_grafico = ft.Container(
+    seccion_formula = ft.Container(
         content=ft.Column([
-            grafico_titulo,
+            formula_titulo,
             ft.Container(height=8),
-            grafico_container
+            formula_texto,
+            ft.Container(height=4),
+            formula_con_valores
         ]),
         bgcolor=CARD_BG,
         border_radius=12,
         padding=15,
-        margin=ft.Margin(0, 0, 0, 12)
+        margin=ft.Margin(0, 0, 0, 12),
+        visible=False
     )
 
-    def actualizar_grafico(dist_id, params):
-        """Actualiza el gráfico con la distribución y parámetros actuales"""
-        try:
-            chart, titulo = EstadisticaLogic.generar_grafico(dist_id, params)
-            if chart:
-                grafico_titulo.value = titulo
-                grafico_container.content = chart
-                if page.controls:
-                    page.update()
-        except Exception as e:
-            grafico_container.content = ft.Text(f"Error: {e}", color="red")
-            page.update()
+    # Fórmulas por distribución
+    FORMULAS = {
+        "normal": {
+            "nombre": "Normal",
+            "formula": "Z = (X - μ) / σ",
+            "formula_fn": lambda x, mu, sigma: f"Z = ({x} - {mu}) / {sigma} = {(x - mu) / sigma:.4f}" if sigma != 0 else "Error: σ = 0"
+        },
+        "uniforme": {
+            "nombre": "Uniforme",
+            "formula": "P(X ≤ x) = (x - a) / (b - a)",
+            "formula_fn": lambda x, a, b: f"P = ({x} - {a}) / ({b} - {a}) = {(x - a) / (b - a):.4f}" if b != a else "Error: a = b"
+        },
+        "exponencial": {
+            "nombre": "Exponencial",
+            "formula": "P(X ≤ x) = 1 - e^(-λx)",
+            "formula_fn": lambda x, lambd: f"P = 1 - e^(-{lambd}×{x}) = {1 - 2.71828**(-lambd * x):.4f}"
+        },
+        "poisson": {
+            "nombre": "Poisson",
+            "formula": "P(X = k) = (λ^k × e^(-λ)) / k!",
+            "formula_fn": lambda k, lambd: f"P = ({lambd}^{int(k)} × e^(-{lambd})) / {int(k)}!"
+        },
+        "binomial": {
+            "nombre": "Binomial",
+            "formula": "P(X = k) = C(n,k) × p^k × (1-p)^(n-k)",
+            "formula_fn": lambda k, n, p: f"P = C({int(n)},{int(k)}) × {p}^{int(k)} × {1-p:.2f}^{int(n-k)}"
+        },
+        "t_student": {
+            "nombre": "t-Student",
+            "formula": "t = (X̄ - μ) / (s / √n)",
+            "formula_fn": lambda t, df: f"t = {t:.4f}, df = {int(df)}"
+        },
+        "chi_cuadrado": {
+            "nombre": "Chi-Cuadrado",
+            "formula": "χ² = Σ((O - E)² / E)",
+            "formula_fn": lambda x, k: f"χ² = {x:.4f}, k = {int(k)}"
+        }
+    }
+
+    def mostrar_formula(dist_id, params, valor=None):
+        """Muestra la fórmula de la distribución con los valores"""
+        if dist_id in FORMULAS:
+            info = FORMULAS[dist_id]
+            formula_texto.value = f"{info['nombre']}: {info['formula']}"
+            if valor is not None:
+                try:
+                    if dist_id == "normal":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0], params[1])
+                    elif dist_id == "uniforme":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0], params[1])
+                    elif dist_id == "exponencial":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0])
+                    elif dist_id == "poisson":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0])
+                    elif dist_id == "binomial":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0], params[1])
+                    elif dist_id == "t_student":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0])
+                    elif dist_id == "chi_cuadrado":
+                        formula_con_valores.value = info["formula_fn"](valor, params[0])
+                except Exception as ex:
+                    formula_con_valores.value = f"Error: {ex}"
+            else:
+                formula_con_valores.value = ""
+            seccion_formula.visible = True
+        else:
+            seccion_formula.visible = False
+
 
     def actualizar_parametros(dist_id):
         """Actualiza los campos de parámetros según la distribución seleccionada"""
@@ -239,8 +301,8 @@ def main(page: ft.Page):
         # Reemplazar el contenido completo del contenedor
         seccion_parametros.content = ft.Column(content_controls)
         
-        # Actualizar gráfico con valores por defecto
-        actualizar_grafico(dist_id, params_valores)
+        # Mostrar fórmula de la distribución
+        mostrar_formula(dist_id, params_valores)
         
         if page.controls:  # Solo actualizar si la página ya tiene controles
             page.update()
@@ -251,15 +313,6 @@ def main(page: ft.Page):
     def on_dist_changed(e):
         """Handler que se llama cuando cambia la distribución seleccionada"""
         actualizar_parametros(e.control.value)
-
-    def on_actualizar_grafico(e):
-        """Handler para actualizar el gráfico manualmente con parámetros actuales"""
-        try:
-            dist_id = radio_distribucion.value
-            params = [float(field.value) for field in param_fields]
-            actualizar_grafico(dist_id, params)
-        except:
-            pass
 
     # --- Sección Distribución (usando RadioGroup que tiene eventos funcionando) ---
     radio_distribucion = ft.RadioGroup(
@@ -274,18 +327,6 @@ def main(page: ft.Page):
             ft.Radio(value="t_student", label="t-Student"),
             ft.Radio(value="chi_cuadrado", label="Chi-Cuadrado (χ²)"),
         ], spacing=2)
-    )
-
-    # Botón para actualizar gráfico con parámetros modificados
-    btn_actualizar_grafico = ft.Container(
-        content=ft.Row([
-            ft.Icon(ft.Icons.REFRESH, color=ACCENT_GREEN, size=18),
-            ft.Text("Actualizar Gráfico", size=12, color=ACCENT_GREEN)
-        ], spacing=4, alignment=ft.MainAxisAlignment.CENTER),
-        on_click=on_actualizar_grafico,
-        padding=ft.Padding(12, 8, 12, 8),
-        border_radius=8,
-        border=ft.Border.all(1, ACCENT_GREEN)
     )
 
     seccion_distribucion = crear_card(
@@ -334,8 +375,15 @@ def main(page: ft.Page):
             input_valor.visible = True
             input_n.visible = False
             campos_dinamicos.content = ft.Row([input_valor], spacing=12)
+        elif op == "media_muestral":
+            input_valor.label = "Valor (X̄)"
+            input_valor.visible = True
+            input_n.label = "Tamaño muestra (n)"
+            input_n.visible = True
+            campos_dinamicos.content = ft.Row([input_valor, input_n], spacing=12)
         elif op == "sim":
             input_valor.visible = False
+            input_n.label = "Cantidad (N)"
             input_n.visible = True
             campos_dinamicos.content = ft.Row([input_n], spacing=12)
         page.update()
@@ -344,6 +392,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Radio(value="prob", label="Buscar Probabilidad"),
             ft.Radio(value="dato", label="Buscar Dato"),
+            ft.Radio(value="media_muestral", label="Media Muestral (X̄)"),
             ft.Radio(value="sim", label="Simular"),
         ], spacing=4),
         value="prob",
@@ -410,17 +459,122 @@ def main(page: ft.Page):
             if op == "prob":
                 val = float(input_valor.value)
                 res = EstadisticaLogic.calcular_probabilidad(dist_id, params, val)
+                
+                # Mostrar fórmula con valores
+                mostrar_formula(dist_id, params, val)
+                
                 if isinstance(res, str):
                     mostrar_resultado_simple(res)
                 else:
-                    mostrar_resultado_simple(f"P(X ≤ {val}) = {res:.6f}")
+                    # Mostrar ambas probabilidades
+                    prob_menor = res
+                    prob_mayor = 1 - res
+                    resultado_container.content = crear_card(
+                        ft.Column([
+                            ft.Text("📊 RESULTADOS", size=12, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN),
+                            ft.Container(height=8),
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(f"P(X ≤ {val})", size=12, color=TEXT_MUTED),
+                                    ft.Text(f"{prob_menor:.6f}", size=20, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN)
+                                ]),
+                                bgcolor="#1f2937",
+                                border_radius=8,
+                                padding=12
+                            ),
+                            ft.Container(height=8),
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(f"P(X > {val})", size=12, color=TEXT_MUTED),
+                                    ft.Text(f"{prob_mayor:.6f}", size=20, weight=ft.FontWeight.BOLD, color="#f59e0b")
+                                ]),
+                                bgcolor="#1f2937",
+                                border_radius=8,
+                                padding=12
+                            ),
+                        ])
+                    )
+                    resultado_container.visible = True
+                    page.update()
             elif op == "dato":
                 prob = float(input_valor.value)
                 res = EstadisticaLogic.calcular_dato(dist_id, params, prob)
+                
+                # Mostrar fórmula
+                mostrar_formula(dist_id, params, res if not isinstance(res, str) else 0)
+                
                 if isinstance(res, str):
                     mostrar_resultado_simple(res)
                 else:
-                    mostrar_resultado_simple(f"X = {res:.6f}")
+                    resultado_container.content = crear_card(
+                        ft.Column([
+                            ft.Text("📊 RESULTADO", size=12, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN),
+                            ft.Container(height=8),
+                            ft.Text(f"Para P = {prob}", size=12, color=TEXT_MUTED),
+                            ft.Text(f"X = {res:.6f}", size=20, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN),
+                        ])
+                    )
+                    resultado_container.visible = True
+                    page.update()
+            elif op == "media_muestral":
+                # Cálculo de media muestral usando Teorema Central del Límite
+                x_bar = float(input_valor.value)
+                n_muestra = int(input_n.value)
+                
+                if dist_id == "normal":
+                    mu = params[0]
+                    sigma = params[1]
+                    # Error estándar de la media
+                    sigma_x_bar = sigma / (n_muestra ** 0.5)
+                    # Estandarizar
+                    z = (x_bar - mu) / sigma_x_bar
+                    # Calcular probabilidad
+                    prob = EstadisticaLogic.calcular_probabilidad("normal", [0, 1], z)
+                    
+                    if isinstance(prob, str):
+                        mostrar_resultado_simple(prob)
+                    else:
+                        prob_mayor = 1 - prob
+                        resultado_container.content = crear_card(
+                            ft.Column([
+                                ft.Text("📊 MEDIA MUESTRAL (X̄)", size=12, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN),
+                                ft.Container(height=8),
+                                ft.Container(
+                                    content=ft.Column([
+                                        ft.Text("Fórmula:", size=10, color=TEXT_MUTED),
+                                        ft.Text(f"σ_X̄ = σ/√n = {sigma}/√{n_muestra} = {sigma_x_bar:.4f}", size=12),
+                                        ft.Text(f"Z = (X̄ - μ)/σ_X̄ = ({x_bar} - {mu})/{sigma_x_bar:.4f} = {z:.4f}", size=12),
+                                    ]),
+                                    bgcolor="#1f2937",
+                                    border_radius=8,
+                                    padding=12
+                                ),
+                                ft.Container(height=8),
+                                ft.Container(
+                                    content=ft.Column([
+                                        ft.Text(f"P(X̄ ≤ {x_bar})", size=12, color=TEXT_MUTED),
+                                        ft.Text(f"{prob:.6f}", size=20, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN)
+                                    ]),
+                                    bgcolor="#1f2937",
+                                    border_radius=8,
+                                    padding=12
+                                ),
+                                ft.Container(height=8),
+                                ft.Container(
+                                    content=ft.Column([
+                                        ft.Text(f"P(X̄ > {x_bar})", size=12, color=TEXT_MUTED),
+                                        ft.Text(f"{prob_mayor:.6f}", size=20, weight=ft.FontWeight.BOLD, color="#f59e0b")
+                                    ]),
+                                    bgcolor="#1f2937",
+                                    border_radius=8,
+                                    padding=12
+                                ),
+                            ])
+                        )
+                        resultado_container.visible = True
+                        page.update()
+                else:
+                    mostrar_resultado_simple("Media muestral solo disponible para Distribución Normal")
             elif op == "sim":
                 n = int(input_n.value)
                 datos = EstadisticaLogic.simular(dist_id, params, n)
@@ -441,7 +595,11 @@ def main(page: ft.Page):
         border_radius=10,
         padding=ft.Padding(0, 14, 0, 14),
         margin=ft.Margin(0, 8, 0, 8),
-        on_click=on_calcular
+        on_click=on_calcular,
+        ink=True,
+        animate=ft.Animation(200, ft.AnimationCurve.EASE_IN_OUT),
+        animate_scale=ft.Animation(100, ft.AnimationCurve.EASE_IN_OUT),
+        on_hover=lambda e: setattr(e.control, 'scale', 1.02 if e.data == "true" else 1.0) or page.update()
     )
 
     # --- Vista Distribuciones completa ---
@@ -452,8 +610,7 @@ def main(page: ft.Page):
                 content=ft.Column([
                     seccion_distribucion,
                     seccion_parametros,
-                    btn_actualizar_grafico,
-                    seccion_grafico,
+                    seccion_formula,
                     seccion_operacion,
                     btn_calcular,
                     resultado_container
@@ -700,16 +857,54 @@ def main(page: ft.Page):
     # Conectar evento de búsqueda
     search_value_tablas.on_change = actualizar_tabla
     
-    # Tabs para seleccionar tipo de tabla
-    tabs_tablas = ft.TabBar(
-        tabs=[
-            ft.Tab(label="Tabla Z"),
-            ft.Tab(label="Tabla T"),
-            ft.Tab(label="Chi²"),
+    # Estado de tab seleccionado
+    tab_seleccionado = {"valor": "z"}
+    
+    def crear_tab_btn(texto, valor):
+        """Crea un botón de tab"""
+        is_selected = tab_seleccionado["valor"] == valor
+        return ft.Container(
+            content=ft.Text(
+                texto, 
+                size=14, 
+                weight=ft.FontWeight.BOLD if is_selected else ft.FontWeight.NORMAL,
+                color=ACCENT_GREEN if is_selected else TEXT_MUTED
+            ),
+            bgcolor="#1a332e" if is_selected else "transparent",
+            border_radius=8,
+            padding=ft.Padding(16, 10, 16, 10),
+            on_click=lambda e, v=valor: on_tab_click(v),
+            ink=True
+        )
+    
+    tabs_row = ft.Row(spacing=8)
+    
+    def actualizar_tabs():
+        """Actualiza la apariencia de los tabs"""
+        tabs_row.controls = [
+            crear_tab_btn("Tabla Z", "z"),
+            crear_tab_btn("Tabla T", "t"),
+            crear_tab_btn("Chi²", "chi2"),
         ]
-    )
-    tabs_tablas.selected_index = 0
-    tabs_tablas.on_change = on_tab_change
+    
+    def on_tab_click(valor):
+        """Cambia entre las diferentes tablas"""
+        tab_seleccionado["valor"] = valor
+        tabla_actual["tipo"] = valor
+        
+        if valor == "z":
+            search_value_tablas.hint_text = "Buscar Z (ej: 0.5)"
+        elif valor == "t":
+            search_value_tablas.hint_text = "Buscar df (ej: 10)"
+        else:
+            search_value_tablas.hint_text = "Buscar df (ej: 5)"
+        
+        actualizar_tabs()
+        actualizar_tabla()
+        page.update()
+    
+    # Inicializar tabs
+    actualizar_tabs()
     
     # Inicializar tabla Z por defecto
     tabla_container.content = ft.Column([
@@ -717,84 +912,572 @@ def main(page: ft.Page):
     ], scroll=ft.ScrollMode.AUTO, expand=True)
     
     vista_tablas = ft.Container(
-        content=ft.Tabs(
-            length=3,
-            content=ft.Column([
-                # Header
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.TABLE_CHART, color=ACCENT_GREEN, size=28),
-                        ft.Column([
-                            ft.Text("Tablas Estadísticas", size=20, weight=ft.FontWeight.BOLD),
-                            ft.Text("Consulta valores críticos", size=12, color=TEXT_MUTED)
-                        ], spacing=2)
-                    ], spacing=12),
-                    padding=ft.Padding(20, 20, 20, 10)
-                ),
-                # Tabs
-                ft.Container(
-                    content=tabs_tablas,
-                    padding=ft.Padding(16, 0, 16, 0)
-                ),
-                # Campo de búsqueda
-                ft.Container(
-                    content=search_value_tablas,
-                    padding=ft.Padding(16, 10, 16, 10)
-                ),
-                # Tabla
-                ft.Container(
-                    content=tabla_container,
-                    padding=ft.Padding(16, 0, 16, 16),
-                    expand=True
-                )
-            ], expand=True)
-        ),
+        content=ft.Column([
+            # Header
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.TABLE_CHART, color=ACCENT_GREEN, size=28),
+                    ft.Column([
+                        ft.Text("Tablas Estadísticas", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text("Consulta valores críticos", size=12, color=TEXT_MUTED)
+                    ], spacing=2)
+                ], spacing=12),
+                padding=ft.Padding(20, 20, 20, 10)
+            ),
+            # Tabs
+            ft.Container(
+                content=tabs_row,
+                padding=ft.Padding(16, 0, 16, 0)
+            ),
+            # Campo de búsqueda
+            ft.Container(
+                content=search_value_tablas,
+                padding=ft.Padding(16, 10, 16, 10)
+            ),
+            # Tabla
+            ft.Container(
+                content=tabla_container,
+                padding=ft.Padding(16, 0, 16, 16),
+                expand=True
+            )
+        ], expand=True),
         expand=True
     )
 
-    # ==========================================
-    # PANTALLA 3: CALCULADORA (Placeholder)
-    # ==========================================
+    # --- Calculadora: Lógica de estadísticas descriptivas ---
+    def calcular_estadisticas_descriptivas(datos):
+        """Calcula estadísticas descriptivas básicas"""
+        if not datos:
+            return {}
+        
+        n = len(datos)
+        suma = sum(datos)
+        media = suma / n
+        
+        # Ordenar para mediana
+        ordenados = sorted(datos)
+        if n % 2 == 0:
+            mediana = (ordenados[n//2 - 1] + ordenados[n//2]) / 2
+        else:
+            mediana = ordenados[n//2]
+        
+        # Moda (valor más frecuente)
+        frecuencias = {}
+        for d in datos:
+            frecuencias[d] = frecuencias.get(d, 0) + 1
+        max_freq = max(frecuencias.values())
+        modas = [k for k, v in frecuencias.items() if v == max_freq]
+        moda = modas[0] if len(modas) == 1 else "Múltiple"
+        
+        # Varianza y desviación estándar
+        varianza = sum((x - media) ** 2 for x in datos) / n
+        desv_std = varianza ** 0.5
+        
+        # Varianza muestral (n-1)
+        varianza_muestral = sum((x - media) ** 2 for x in datos) / (n - 1) if n > 1 else 0
+        desv_std_muestral = varianza_muestral ** 0.5
+        
+        return {
+            "n": n,
+            "suma": suma,
+            "media": media,
+            "mediana": mediana,
+            "moda": moda,
+            "min": min(datos),
+            "max": max(datos),
+            "rango": max(datos) - min(datos),
+            "varianza": varianza,
+            "desv_std": desv_std,
+            "varianza_m": varianza_muestral,
+            "desv_std_m": desv_std_muestral
+        }
+    
+    # Input de datos
+    calc_input = ft.TextField(
+        label="Datos (separados por comas o espacios)",
+        hint_text="Ej: 1, 2, 3, 4, 5 o 1 2 3 4 5",
+        bgcolor="#1f2937",
+        border_color="#3b82f6",
+        focused_border_color=ACCENT_GREEN,
+        multiline=True,
+        min_lines=2,
+        max_lines=4
+    )
+    
+    # Contenedor de resultados
+    calc_resultados = ft.Container(visible=False)
+    
+    def crear_stat_card(titulo, valor, icono, color=ACCENT_GREEN):
+        """Crea una tarjeta para mostrar una estadística"""
+        return ft.Container(
+            content=ft.Row([
+                ft.Icon(icono, color=color, size=24),
+                ft.Column([
+                    ft.Text(titulo, size=11, color=TEXT_MUTED),
+                    ft.Text(str(valor) if isinstance(valor, str) else f"{valor:.4f}", 
+                            size=16, weight=ft.FontWeight.BOLD, color=color)
+                ], spacing=2, expand=True)
+            ], spacing=12),
+            bgcolor="#1f2937",
+            border_radius=10,
+            padding=12
+        )
+    
+    def on_calcular_stats(e):
+        """Procesa los datos y muestra estadísticas"""
+        try:
+            texto = calc_input.value.strip()
+            if not texto:
+                calc_resultados.visible = False
+                page.update()
+                return
+            
+            # Parsear datos (comas o espacios)
+            texto = texto.replace(",", " ")
+            datos = [float(x.strip()) for x in texto.split() if x.strip()]
+            
+            if not datos:
+                calc_resultados.visible = False
+                page.update()
+                return
+            
+            stats = calcular_estadisticas_descriptivas(datos)
+            
+            # Crear grid de resultados
+            calc_resultados.content = ft.Column([
+                ft.Text("📊 Resultados", size=14, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN),
+                ft.Container(height=8),
+                ft.Row([
+                    ft.Column([
+                        crear_stat_card("Cantidad (n)", stats["n"], ft.Icons.NUMBERS),
+                        crear_stat_card("Media (μ)", stats["media"], ft.Icons.SHOW_CHART),
+                        crear_stat_card("Mediana", stats["mediana"], ft.Icons.ALIGN_VERTICAL_CENTER),
+                        crear_stat_card("Moda", stats["moda"], ft.Icons.STAR),
+                    ], spacing=8, expand=True),
+                    ft.Column([
+                        crear_stat_card("Suma (Σ)", stats["suma"], ft.Icons.ADD),
+                        crear_stat_card("Desv. Std (σ)", stats["desv_std"], ft.Icons.STACKED_LINE_CHART),
+                        crear_stat_card("Varianza (σ²)", stats["varianza"], ft.Icons.SQUARE),
+                        crear_stat_card("Rango", stats["rango"], ft.Icons.SWAP_VERT),
+                    ], spacing=8, expand=True),
+                ], spacing=8),
+                ft.Container(height=12),
+                ft.Text("📐 Valores Extremos", size=12, weight=ft.FontWeight.W_500, color=TEXT_MUTED),
+                ft.Container(height=4),
+                ft.Row([
+                    crear_stat_card("Mínimo", stats["min"], ft.Icons.ARROW_DOWNWARD, "#ef4444"),
+                    crear_stat_card("Máximo", stats["max"], ft.Icons.ARROW_UPWARD, "#22c55e"),
+                ], spacing=8),
+                ft.Container(height=12),
+                ft.Text("📏 Muestrales (n-1)", size=12, weight=ft.FontWeight.W_500, color=TEXT_MUTED),
+                ft.Container(height=4),
+                ft.Row([
+                    crear_stat_card("Varianza (s²)", stats["varianza_m"], ft.Icons.SQUARE_OUTLINED),
+                    crear_stat_card("Desv. Std (s)", stats["desv_std_m"], ft.Icons.STACKED_LINE_CHART),
+                ], spacing=8),
+            ], scroll=ft.ScrollMode.AUTO)
+            
+            calc_resultados.visible = True
+            page.update()
+            
+        except Exception as ex:
+            calc_resultados.content = ft.Text(f"Error: {ex}", color="#ef4444")
+            calc_resultados.visible = True
+            page.update()
+    
+    btn_calcular_stats = ft.Container(
+        content=ft.Row([
+            ft.Icon(ft.Icons.CALCULATE, color="#000000", size=20),
+            ft.Text("Calcular Estadísticas", size=14, weight=ft.FontWeight.BOLD, color="#000000")
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+        bgcolor=ACCENT_GREEN,
+        border_radius=10,
+        padding=ft.Padding(0, 12, 0, 12),
+        on_click=on_calcular_stats
+    )
+    
     vista_calculadora = ft.Container(
         content=ft.Column([
+            # Header
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.CALCULATE, color=ACCENT_GREEN, size=28),
                     ft.Column([
-                        ft.Text("Calculadora", size=20, weight=ft.FontWeight.BOLD),
-                        ft.Text("Operaciones rápidas", size=12, color=TEXT_MUTED)
+                        ft.Text("Calculadora Estadística", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text("Estadísticas descriptivas", size=12, color=TEXT_MUTED)
                     ], spacing=2)
                 ], spacing=12),
-                padding=20
+                padding=ft.Padding(20, 20, 20, 10)
             ),
+            # Contenido
             ft.Container(
-                content=ft.Text("Próximamente...", color=TEXT_MUTED),
-                padding=20
+                content=ft.Column([
+                    crear_card(ft.Column([
+                        crear_seccion_titulo("INGRESA TUS DATOS"),
+                        ft.Container(height=8),
+                        calc_input,
+                        ft.Container(height=12),
+                        btn_calcular_stats
+                    ])),
+                    calc_resultados
+                ], scroll=ft.ScrollMode.AUTO, expand=True),
+                padding=ft.Padding(16, 0, 16, 16),
+                expand=True
             )
-        ]),
+        ], expand=True),
         expand=True
     )
 
     # ==========================================
-    # PANTALLA 4: AJUSTES (Placeholder)
+    # PANTALLA 4: DISTRIBUCIONES MUESTRALES
     # ==========================================
+    
+    # Campos de entrada para muestrales
+    muestral_fields = {}
+    muestral_resultado = ft.Container(visible=False)
+    
+    # Tipo de distribución muestral
+    muestral_tipo = ft.RadioGroup(
+        value="media_sigma_con",
+        content=ft.Column([
+            ft.Radio(value="media_sigma_con", label="Media (σ conocida)"),
+            ft.Radio(value="media_sigma_des", label="Media (σ desconocida)"),
+            ft.Radio(value="varianza", label="Varianza Muestral"),
+            ft.Radio(value="proporcion", label="Proporción Muestral"),
+            ft.Radio(value="dif_medias", label="Diferencia de Medias"),
+            ft.Radio(value="dif_proporciones", label="Diferencia de Proporciones"),
+            ft.Radio(value="razon_varianzas", label="Razón de Varianzas"),
+        ], spacing=2)
+    )
+    
+    # Contenedor dinámico para campos
+    muestral_campos = ft.Container()
+    
+    # Campos por tipo
+    def crear_campo(label, value="0"):
+        return ft.TextField(label=label, value=value, bgcolor="#1f2937", expand=True, height=55)
+    
+    def actualizar_campos_muestrales(e=None):
+        tipo = muestral_tipo.value
+        campos = []
+        
+        if tipo == "media_sigma_con":
+            campos = [
+                ft.Row([crear_campo("X̄ (media muestral)", "70"), crear_campo("μ (media poblacional)", "70")], spacing=8),
+                ft.Row([crear_campo("σ (desv. poblacional)", "5"), crear_campo("n (tamaño muestra)", "30")], spacing=8),
+            ]
+        elif tipo == "media_sigma_des":
+            campos = [
+                ft.Row([crear_campo("X̄ (media muestral)", "70"), crear_campo("μ (media poblacional)", "70")], spacing=8),
+                ft.Row([crear_campo("s (desv. muestral)", "5"), crear_campo("n (tamaño muestra)", "30")], spacing=8),
+            ]
+        elif tipo == "varianza":
+            campos = [
+                ft.Row([crear_campo("S² (varianza muestral)", "25"), crear_campo("σ² (varianza poblacional)", "20")], spacing=8),
+                crear_campo("n (tamaño muestra)", "30"),
+            ]
+        elif tipo == "proporcion":
+            campos = [
+                ft.Row([crear_campo("p̂ (proporción muestral)", "0.6"), crear_campo("p (proporción poblacional)", "0.5")], spacing=8),
+                crear_campo("n (tamaño muestra)", "100"),
+            ]
+        elif tipo == "dif_medias":
+            campos = [
+                ft.Row([crear_campo("X̄₁", "75"), crear_campo("X̄₂", "70")], spacing=8),
+                ft.Row([crear_campo("s₁", "8"), crear_campo("s₂", "7")], spacing=8),
+                ft.Row([crear_campo("n₁", "30"), crear_campo("n₂", "35")], spacing=8),
+            ]
+        elif tipo == "dif_proporciones":
+            campos = [
+                ft.Row([crear_campo("p̂₁", "0.6"), crear_campo("p̂₂", "0.5")], spacing=8),
+                ft.Row([crear_campo("n₁", "100"), crear_campo("n₂", "120")], spacing=8),
+            ]
+        elif tipo == "razon_varianzas":
+            campos = [
+                ft.Row([crear_campo("S₁²", "25"), crear_campo("S₂²", "20")], spacing=8),
+                ft.Row([crear_campo("n₁", "30"), crear_campo("n₂", "35")], spacing=8),
+            ]
+        
+        muestral_campos.content = ft.Column(campos, spacing=8)
+        if page.controls:
+            page.update()
+    
+    muestral_tipo.on_change = actualizar_campos_muestrales
+    
+    def calcular_muestral(e):
+        try:
+            tipo = muestral_tipo.value
+            campos = muestral_campos.content.controls if muestral_campos.content else []
+            
+            # Extraer valores de los campos
+            def get_val(row_idx, col_idx=0):
+                if isinstance(campos[row_idx], ft.Row):
+                    return float(campos[row_idx].controls[col_idx].value)
+                return float(campos[row_idx].value)
+            
+            resultado = None
+            
+            if tipo == "media_sigma_con":
+                x_bar = get_val(0, 0)
+                mu = get_val(0, 1)
+                sigma = get_val(1, 0)
+                n = int(get_val(1, 1))
+                resultado = EstadisticaPura.media_muestral_sigma_conocida(x_bar, mu, sigma, n)
+                
+            elif tipo == "media_sigma_des":
+                x_bar = get_val(0, 0)
+                mu = get_val(0, 1)
+                s = get_val(1, 0)
+                n = int(get_val(1, 1))
+                resultado = EstadisticaPura.media_muestral_sigma_desconocida(x_bar, mu, s, n)
+                
+            elif tipo == "varianza":
+                s2 = get_val(0, 0)
+                sigma2 = get_val(0, 1)
+                n = int(get_val(1))
+                resultado = EstadisticaPura.varianza_muestral(s2, sigma2, n)
+                
+            elif tipo == "proporcion":
+                p_hat = get_val(0, 0)
+                p = get_val(0, 1)
+                n = int(get_val(1))
+                resultado = EstadisticaPura.proporcion_muestral(p_hat, p, n)
+                
+            elif tipo == "dif_medias":
+                x1 = get_val(0, 0)
+                x2 = get_val(0, 1)
+                s1 = get_val(1, 0)
+                s2 = get_val(1, 1)
+                n1 = int(get_val(2, 0))
+                n2 = int(get_val(2, 1))
+                resultado = EstadisticaPura.diferencia_medias_pooled(x1, x2, s1, s2, n1, n2)
+                
+            elif tipo == "dif_proporciones":
+                p1 = get_val(0, 0)
+                p2 = get_val(0, 1)
+                n1 = int(get_val(1, 0))
+                n2 = int(get_val(1, 1))
+                resultado = EstadisticaPura.diferencia_proporciones(p1, p2, n1, n2)
+                
+            elif tipo == "razon_varianzas":
+                s1_2 = get_val(0, 0)
+                s2_2 = get_val(0, 1)
+                n1 = int(get_val(1, 0))
+                n2 = int(get_val(1, 1))
+                resultado = EstadisticaPura.razon_varianzas(s1_2, s2_2, n1, n2)
+            
+            if resultado:
+                muestral_resultado.content = crear_card(
+                    ft.Column([
+                        ft.Text("📊 RESULTADO", size=12, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN),
+                        ft.Container(height=8),
+                        ft.Container(
+                            content=ft.Text(resultado.get("formula", ""), size=12, selectable=True),
+                            bgcolor="#1f2937",
+                            border_radius=8,
+                            padding=12
+                        ),
+                        ft.Container(height=8),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("P(≤)", size=12, color=TEXT_MUTED),
+                                ft.Text(f"{resultado.get('prob_menor', 0):.6f}", size=20, weight=ft.FontWeight.BOLD, color=ACCENT_GREEN)
+                            ]),
+                            bgcolor="#1f2937",
+                            border_radius=8,
+                            padding=12
+                        ),
+                        ft.Container(height=8),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("P(>)", size=12, color=TEXT_MUTED),
+                                ft.Text(f"{resultado.get('prob_mayor', 0):.6f}", size=20, weight=ft.FontWeight.BOLD, color="#f59e0b")
+                            ]),
+                            bgcolor="#1f2937",
+                            border_radius=8,
+                            padding=12
+                        ),
+                    ])
+                )
+                muestral_resultado.visible = True
+                page.update()
+                
+        except Exception as ex:
+            muestral_resultado.content = crear_card(
+                ft.Text(f"Error: {ex}", color="red", size=14)
+            )
+            muestral_resultado.visible = True
+            page.update()
+    
+    btn_calcular_muestral = ft.Container(
+        content=ft.Row([
+            ft.Icon(ft.Icons.ANALYTICS, color="#000000", size=20),
+            ft.Text("Calcular", size=16, weight=ft.FontWeight.BOLD, color="#000000")
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+        bgcolor=ACCENT_GREEN,
+        border_radius=10,
+        padding=ft.Padding(0, 14, 0, 14),
+        margin=ft.Margin(0, 8, 0, 8),
+        on_click=calcular_muestral,
+        ink=True
+    )
+    
+    # Inicializar campos
+    actualizar_campos_muestrales()
+    
+    vista_muestrales = ft.Container(
+        content=ft.Column([
+            # Header
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.ANALYTICS, color=ACCENT_GREEN, size=28),
+                    ft.Column([
+                        ft.Text("Distribuciones Muestrales", size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text("Inferencia estadística", size=12, color=TEXT_MUTED)
+                    ], spacing=2)
+                ], spacing=12),
+                padding=ft.Padding(20, 20, 20, 10)
+            ),
+            # Contenido
+            ft.Container(
+                content=ft.Column([
+                    crear_card(ft.Column([
+                        crear_seccion_titulo("TIPO DE DISTRIBUCIÓN"),
+                        ft.Container(height=8),
+                        muestral_tipo
+                    ])),
+                    crear_card(ft.Column([
+                        crear_seccion_titulo("PARÁMETROS"),
+                        ft.Container(height=8),
+                        muestral_campos
+                    ])),
+                    btn_calcular_muestral,
+                    muestral_resultado
+                ], scroll=ft.ScrollMode.AUTO, expand=True),
+                padding=ft.Padding(16, 0, 16, 16),
+                expand=True
+            )
+        ], expand=True),
+        expand=True
+    )
+
+    # ==========================================
+    # PANTALLA 5: AJUSTES
+    # ==========================================
+    
+    # Estado de configuración
+    app_config = {
+        "decimales": 4
+    }
+    
+    def on_decimales_change(e):
+        """Cambia la precisión decimal"""
+        app_config["decimales"] = int(e.control.value)
+    
+    decimales_dropdown = ft.Dropdown(
+        value="4",
+        options=[
+            ft.dropdown.Option("2", "2 decimales"),
+            ft.dropdown.Option("4", "4 decimales"),
+            ft.dropdown.Option("6", "6 decimales"),
+            ft.dropdown.Option("8", "8 decimales"),
+        ],
+        bgcolor="#1f2937",
+        width=200
+    )
+    
+    def crear_ajuste_item(icono, titulo, descripcion, control):
+        """Crea un item de ajuste con icono, texto y control"""
+        return ft.Container(
+            content=ft.Row([
+                ft.Icon(icono, color=ACCENT_GREEN, size=24),
+                ft.Column([
+                    ft.Text(titulo, size=14, weight=ft.FontWeight.W_500),
+                    ft.Text(descripcion, size=11, color=TEXT_MUTED)
+                ], spacing=2, expand=True),
+                control
+            ], spacing=16),
+            bgcolor="#1f2937",
+            border_radius=10,
+            padding=16,
+            margin=ft.Margin(0, 0, 0, 8)
+        )
+    
     vista_ajustes = ft.Container(
         content=ft.Column([
+            # Header
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.SETTINGS, color=ACCENT_GREEN, size=28),
                     ft.Column([
                         ft.Text("Ajustes", size=20, weight=ft.FontWeight.BOLD),
-                        ft.Text("Configuración", size=12, color=TEXT_MUTED)
+                        ft.Text("Personaliza la aplicación", size=12, color=TEXT_MUTED)
                     ], spacing=2)
                 ], spacing=12),
-                padding=20
+                padding=ft.Padding(20, 20, 20, 10)
             ),
+            # Contenido
             ft.Container(
-                content=ft.Text("Próximamente...", color=TEXT_MUTED),
-                padding=20
+                content=ft.Column([
+                    # Sección Configuración
+                    crear_card(ft.Column([
+                        crear_seccion_titulo("CONFIGURACIÓN"),
+                        ft.Container(height=12),
+                        crear_ajuste_item(
+                            ft.Icons.NUMBERS,
+                            "Precisión Decimal",
+                            "Cantidad de decimales en resultados",
+                            decimales_dropdown
+                        ),
+                    ])),
+                    # Sección Info
+                    crear_card(ft.Column([
+                        crear_seccion_titulo("INFORMACIÓN"),
+                        ft.Container(height=12),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.INFO_OUTLINE, color=TEXT_MUTED, size=20),
+                                    ft.Text("App Estadística", size=14, weight=ft.FontWeight.W_500),
+                                ], spacing=12),
+                                ft.Container(height=8),
+                                ft.Text("Versión 1.0.0", size=12, color=TEXT_MUTED),
+                                ft.Text("Desarrollado con Flet & Python", size=12, color=TEXT_MUTED),
+                                ft.Container(height=12),
+                                ft.Text("Incluye:", size=12, color=TEXT_MUTED),
+                                ft.Text("• 7 distribuciones de probabilidad", size=11, color=TEXT_MUTED),
+                                ft.Text("• 7 distribuciones muestrales", size=11, color=TEXT_MUTED),
+                                ft.Text("• Tablas Z, t-Student y Chi²", size=11, color=TEXT_MUTED),
+                                ft.Text("• Calculadora de estadísticas descriptivas", size=11, color=TEXT_MUTED),
+                            ]),
+                            padding=ft.Padding(12, 12, 12, 12),
+                            bgcolor="#1f2937",
+                            border_radius=10
+                        )
+                    ])),
+                    # Sección Desarrollador
+                    crear_card(ft.Column([
+                        crear_seccion_titulo("DESARROLLADOR"),
+                        ft.Container(height=12),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.PERSON, color=ACCENT_GREEN, size=24),
+                                    ft.Text("Jhosber Ynojosa", size=16, weight=ft.FontWeight.BOLD),
+                                ], spacing=12),
+                                ft.Container(height=4),
+                                ft.Text("Estudiante de Computación", size=12, color=TEXT_MUTED),
+                            ]),
+                            padding=ft.Padding(12, 12, 12, 12),
+                            bgcolor="#1f2937",
+                            border_radius=10
+                        )
+                    ])),
+                ], scroll=ft.ScrollMode.AUTO, expand=True),
+                padding=ft.Padding(16, 0, 16, 16),
+                expand=True
             )
-        ]),
+        ], expand=True),
         expand=True
     )
 
@@ -812,6 +1495,8 @@ def main(page: ft.Page):
         elif idx == 2:
             contenedor_principal.content = vista_calculadora
         elif idx == 3:
+            contenedor_principal.content = vista_muestrales
+        elif idx == 4:
             contenedor_principal.content = vista_ajustes
         page.update()
 
@@ -833,6 +1518,11 @@ def main(page: ft.Page):
                 icon=ft.Icons.CALCULATE_OUTLINED,
                 selected_icon=ft.Icons.CALCULATE,
                 label="Calculadora"
+            ),
+            ft.NavigationBarDestination(
+                icon=ft.Icons.ANALYTICS_OUTLINED,
+                selected_icon=ft.Icons.ANALYTICS,
+                label="Muestrales"
             ),
             ft.NavigationBarDestination(
                 icon=ft.Icons.SETTINGS_OUTLINED,
